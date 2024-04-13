@@ -4,13 +4,14 @@ pragma solidity 0.8.24;
 import {InitializableERC20} from "./InitializableERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {BToken} from "./BToken.sol";
 
 contract UToken is InitializableERC20 {
     using SafeERC20 for IERC20Metadata;
 
     IERC20Metadata public underlyingToken;
     IERC20Metadata public settlementToken;
-    IERC20Metadata public bToken;
+    address public bToken;
     uint256 public strike;
     uint256 public expiry;
 
@@ -21,7 +22,7 @@ contract UToken is InitializableERC20 {
     function initialize(
         IERC20Metadata _underlyingToken,
         IERC20Metadata _settlementToken,
-        IERC20Metadata _bToken,
+        address _bToken,
         uint256 _strike,
         uint256 _expiry
     ) external initializer {
@@ -54,7 +55,7 @@ contract UToken is InitializableERC20 {
             revert PreExpiry();
         }
         underlyingToken.safeTransfer(msg.sender, amount);
-        bToken.safeTransferFrom(msg.sender, address(this), amount);
+        BToken(bToken).burn(msg.sender, amount);
     }
 
     function claimSettlement(uint256 amount) external {
@@ -62,10 +63,10 @@ contract UToken is InitializableERC20 {
             revert PreExpiry();
         }
         uint256 nominator = settlementToken.balanceOf(address(this)) *
-            bToken.balanceOf(msg.sender);
-        uint256 denominator = bToken.totalSupply();
+            BToken(bToken).balanceOf(msg.sender);
+        uint256 denominator = BToken(bToken).totalSupply();
         uint256 proRataShare = nominator / denominator;
         underlyingToken.safeTransfer(msg.sender, proRataShare);
-        bToken.safeTransferFrom(msg.sender, address(this), amount);
+        BToken(bToken).burn(msg.sender, amount);
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {BToken} from "./BToken.sol";
 import {UToken} from "./UToken.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -45,6 +46,7 @@ contract UTokenFactory {
                 )
             )
         );
+
         address newUToken = Clones.cloneDeterministic(
             uTokenImplementation,
             keccak256(
@@ -63,10 +65,12 @@ contract UTokenFactory {
         UToken(newUToken).initialize(
             _underlyingToken,
             _settlementToken,
-            IERC20Metadata(newBToken),
+            newBToken,
             _strike,
             _expiry
         );
+        BToken(newBToken).initialize(newBToken);
+
         return (newBToken, newUToken);
     }
 
