@@ -12,9 +12,12 @@ contract UTokenFactory {
     address public immutable bTokenImplementation;
     address public immutable uTokenImplementation;
     mapping(IERC20Metadata => mapping(IERC20Metadata => address[]))
-        public uTokens;
+        internal uTokens;
     mapping(IERC20Metadata => mapping(IERC20Metadata => address[]))
-        public bTokens;
+        internal bTokens;
+
+    error InvalidRange();
+    error OutOfBounds();
 
     constructor(address _bTokenImplementation, address _uTokenImplementation) {
         bTokenImplementation = _bTokenImplementation;
@@ -65,5 +68,44 @@ contract UTokenFactory {
             _expiry
         );
         return (newBToken, newUToken);
+    }
+
+    function getBTokens(
+        IERC20Metadata underlying,
+        IERC20Metadata settlement,
+        uint256 from,
+        uint256 numElements
+    ) external view returns (address[] memory) {
+        address[] memory allBTokens = bTokens[underlying][settlement];
+        return _getTokens(allBTokens, from, numElements);
+    }
+
+    function getUTokens(
+        IERC20Metadata underlying,
+        IERC20Metadata settlement,
+        uint256 from,
+        uint256 numElements
+    ) external view returns (address[] memory) {
+        address[] memory allUTokens = uTokens[underlying][settlement];
+        return _getTokens(allUTokens, from, numElements);
+    }
+
+    function _getTokens(
+        address[] memory allTokens,
+        uint256 from,
+        uint256 numElements
+    ) internal pure returns (address[] memory) {
+        if (numElements == 0) {
+            revert InvalidRange();
+        }
+        uint256 length = allTokens.length;
+        if (from + numElements > length + 1) {
+            revert OutOfBounds();
+        }
+        address[] memory selectedTokens = new address[](numElements);
+        for (uint256 i = 0; i < numElements; i++) {
+            selectedTokens[i] = allTokens[from + i];
+        }
+        return selectedTokens;
     }
 }
