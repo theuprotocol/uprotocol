@@ -39,7 +39,7 @@ contract UpTokenFactory {
         address _capTokenImplementation = capTokenImplementation;
         address _upTokenImplementation = upTokenImplementation;
 
-        address newBToken = Clones.cloneDeterministic(
+        address newCapToken = Clones.cloneDeterministic(
             _capTokenImplementation,
             keccak256(
                 abi.encode(
@@ -52,7 +52,7 @@ contract UpTokenFactory {
             )
         );
 
-        address newUToken = Clones.cloneDeterministic(
+        address newUpToken = Clones.cloneDeterministic(
             upTokenImplementation,
             keccak256(
                 abi.encode(
@@ -64,59 +64,44 @@ contract UpTokenFactory {
                 )
             )
         );
-        upTokens[_underlyingToken][_settlementToken].push(newUToken);
-        capTokens[_underlyingToken][_settlementToken].push(newBToken);
+        upTokens[_underlyingToken][_settlementToken].push(newUpToken);
+        capTokens[_underlyingToken][_settlementToken].push(newCapToken);
 
-        UpToken(newUToken).initialize(
+        CapToken(newCapToken).initialize(newUpToken);
+        UpToken(newUpToken).initialize(
             _underlyingToken,
             _settlementToken,
-            newBToken,
+            newCapToken,
             _strike,
             _expiry,
             to,
             amount
         );
-        CapToken(newBToken).initialize(newBToken);
 
-        return (newBToken, newUToken);
+        _underlyingToken.safeTransferFrom(msg.sender, newUpToken, amount);
+
+        return (newCapToken, newUpToken);
     }
 
-    function getCapTokens(
+    function tokens(
         IERC20Metadata underlying,
         IERC20Metadata settlement,
         uint256 from,
         uint256 numElements
-    ) external view returns (address[] memory) {
-        address[] memory allCapTokens = capTokens[underlying][settlement];
-        return _getTokens(allCapTokens, from, numElements);
-    }
-
-    function getUpTokens(
-        IERC20Metadata underlying,
-        IERC20Metadata settlement,
-        uint256 from,
-        uint256 numElements
-    ) external view returns (address[] memory) {
-        address[] memory allUpTokens = upTokens[underlying][settlement];
-        return _getTokens(allUpTokens, from, numElements);
-    }
-
-    function _getTokens(
-        address[] memory allTokens,
-        uint256 from,
-        uint256 numElements
-    ) internal pure returns (address[] memory) {
+    ) external view returns (address[] memory, address[] memory) {
+        uint256 length = capTokens[underlying][settlement].length;
         if (numElements == 0) {
             revert InvalidRange();
         }
-        uint256 length = allTokens.length;
         if (from + numElements > length + 1) {
             revert OutOfBounds();
         }
-        address[] memory selectedTokens = new address[](numElements);
+        address[] memory _upTokens = new address[](numElements);
+        address[] memory _capTokens = new address[](numElements);
         for (uint256 i = 0; i < numElements; i++) {
-            selectedTokens[i] = allTokens[from + i];
+            _upTokens[i] = upTokens[underlying][settlement][from + i];
+            _capTokens[i] = capTokens[underlying][settlement][from + i];
         }
-        return selectedTokens;
+        return (_upTokens, _capTokens);
     }
 }

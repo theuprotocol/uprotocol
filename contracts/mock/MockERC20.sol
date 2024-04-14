@@ -15,4 +15,8 @@ contract MockERC20 is ERC20 {
         _decimals = __decimals;
         _mint(msg.sender, amount);
     }
+
+    function mint(address account, uint256 value) external {
+        _mint(account, value);
+    }
 }

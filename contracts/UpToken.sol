@@ -28,7 +28,12 @@ contract UpToken is InitializableERC20 {
         address to,
         uint256 amount
     ) external initializer {
-        if (_expiry < block.timestamp || _strike == 0) {
+        if (
+            _expiry < block.timestamp ||
+            _strike == 0 ||
+            to == address(0) ||
+            amount == 0
+        ) {
             revert InvalidInitValues();
         }
         decimals = IERC20Metadata(_underlyingToken).decimals();
@@ -39,11 +44,9 @@ contract UpToken is InitializableERC20 {
         capToken = _capToken;
         strike = _strike;
         expiry = _expiry;
-        if (to == address(0) || amount > 0) {
-            _mint(to, amount);
-            CapToken(capToken).mint(to, amount);
-            underlyingToken.safeTransferFrom(msg.sender, address(this), amount);
-        }
+
+        _mint(to, amount);
+        CapToken(capToken).mint(to, amount);
     }
 
     function mint(address to, uint256 amount) external {
