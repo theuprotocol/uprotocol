@@ -3,69 +3,72 @@ const { ethers } = require("hardhat");
 const { time, loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
-describe("UTokenFactory", function () {
-  let uTokenFactory;
+describe("UpTokenFactory", function () {
+  let upTokenFactory;
   let bTokenImplementation;
   let uTokenImplementation;
   let underlyingToken;
   let settlementToken;
 
   beforeEach(async function () {
-    [owner] = await ethers.getSigners();
+    [owner, user] = await ethers.getSigners();
 
-    BToken = await ethers.getContractFactory("BToken");
-    bTokenImplementation = await BToken.deploy();
+    CapToken = await ethers.getContractFactory("CapToken");
+    bTokenImplementation = await CapToken.deploy();
 
-    UToken = await ethers.getContractFactory("UToken");
-    uTokenImplementation = await UToken.deploy();
+    UpToken = await ethers.getContractFactory("UpToken");
+    uTokenImplementation = await UpToken.deploy();
 
-    const UTokenFactory = await ethers.getContractFactory("UTokenFactory");
-    uTokenFactory = await UTokenFactory.deploy(bTokenImplementation, uTokenImplementation);
+    const UpTokenFactory = await ethers.getContractFactory("UpTokenFactory");
+    upTokenFactory = await UpTokenFactory.deploy(bTokenImplementation, uTokenImplementation);
 
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     underlyingToken = await MockERC20.deploy("XYZ", "XYZ", "18", "123")
     settlementToken = await MockERC20.deploy("USDC", "USDC", "6", "123")
   });
 
-  describe("createBAndUToken", function () {
-    it("should create a new BToken and UToken", async function () {
+  describe("CapToken and UpToken Creation", function () {
+    it("should create a new CapToken and UpToken", async function () {
         const strike = 100
         const expiry = (await ethers.provider.getBlock("latest")).timestamp + (180 * 24 * 60 * 60);
-
-        await uTokenFactory.tokenizeUnderlying(
+        
+        await upTokenFactory.create(
             underlyingToken.target,
             settlementToken.target,
             strike,
-            expiry
+            expiry,
+            owner.address,
+            0
         );
-        console.log("TEST")
 
-        const uTokenAddrs = await uTokenFactory.getUTokens(underlyingToken.target, settlementToken.target, 0, 1)
-        const bTokenAddrs = await uTokenFactory.getBTokens(underlyingToken.target, settlementToken.target, 0, 1)
-        console.log(uTokenAddrs)
+        const upTokenAddrs = await upTokenFactory.getUpTokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const capTokenAddrs = await upTokenFactory.getCapTokens(underlyingToken.target, settlementToken.target, 0, 1)
+        console.log(upTokenAddrs)
     });
 
-    it("should initialize the UToken with correct parameters", async function () {
+    it("should initialize the UpToken with correct parameters", async function () {
         const strike = 100
         const expiry = (await ethers.provider.getBlock("latest")).timestamp + (180 * 24 * 60 * 60);
 
-        await uTokenFactory.tokenizeUnderlying(
+        await upTokenFactory.create(
             underlyingToken.target,
             settlementToken.target,
             strike,
-            expiry
+            expiry,
+            owner.address,
+            0
         );
 
-        const uTokenAddrs = await uTokenFactory.getUTokens(underlyingToken.target, settlementToken.target, 0, 1)
-        const bTokenAddrs = await uTokenFactory.getBTokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const upTokenAddrs = await upTokenFactory.getUpTokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const capTokenAddrs = await upTokenFactory.getCapTokens(underlyingToken.target, settlementToken.target, 0, 1)
         
-        const uToken = await ethers.getContractAt("UToken", uTokenAddrs[0]);
+        const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
 
-        expect(await uToken.underlyingToken()).to.equal(underlyingToken.target);
-        expect(await uToken.settlementToken()).to.equal(settlementToken.target);
-        expect(await uToken.bToken()).to.equal(bTokenAddrs[0]);
-        expect(await uToken.strike()).to.equal(strike);
-        expect(await uToken.expiry()).to.equal(expiry);
+        expect(await upToken.underlyingToken()).to.equal(underlyingToken.target);
+        expect(await upToken.settlementToken()).to.equal(settlementToken.target);
+        expect(await upToken.capToken()).to.equal(capTokenAddrs[0]);
+        expect(await upToken.strike()).to.equal(strike);
+        expect(await upToken.expiry()).to.equal(expiry);
     });
   });
 });

@@ -1,44 +1,49 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {BToken} from "./BToken.sol";
-import {UToken} from "./UToken.sol";
+import {CapToken} from "./CapToken.sol";
+import {UpToken} from "./UpToken.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract UTokenFactory {
+contract UpTokenFactory {
     using SafeERC20 for IERC20Metadata;
 
-    address public immutable bTokenImplementation;
-    address public immutable uTokenImplementation;
+    address public immutable capTokenImplementation;
+    address public immutable upTokenImplementation;
     mapping(IERC20Metadata => mapping(IERC20Metadata => address[]))
-        internal uTokens;
+        internal upTokens;
     mapping(IERC20Metadata => mapping(IERC20Metadata => address[]))
-        internal bTokens;
+        internal capTokens;
 
     error InvalidRange();
     error OutOfBounds();
 
-    constructor(address _bTokenImplementation, address _uTokenImplementation) {
-        bTokenImplementation = _bTokenImplementation;
-        uTokenImplementation = _uTokenImplementation;
+    constructor(
+        address _capTokenImplementation,
+        address _upTokenImplementation
+    ) {
+        capTokenImplementation = _capTokenImplementation;
+        upTokenImplementation = _upTokenImplementation;
     }
 
-    function tokenizeUnderlying(
+    function create(
         IERC20Metadata _underlyingToken,
         IERC20Metadata _settlementToken,
         uint256 _strike,
-        uint256 _expiry
+        uint256 _expiry,
+        address to,
+        uint256 amount
     ) external returns (address, address) {
-        address _bTokenImplementation = bTokenImplementation;
-        address _uTokenImplementation = uTokenImplementation;
+        address _capTokenImplementation = capTokenImplementation;
+        address _upTokenImplementation = upTokenImplementation;
 
         address newBToken = Clones.cloneDeterministic(
-            _bTokenImplementation,
+            _capTokenImplementation,
             keccak256(
                 abi.encode(
-                    _bTokenImplementation,
+                    _capTokenImplementation,
                     _underlyingToken,
                     _settlementToken,
                     _strike,
@@ -48,10 +53,10 @@ contract UTokenFactory {
         );
 
         address newUToken = Clones.cloneDeterministic(
-            uTokenImplementation,
+            upTokenImplementation,
             keccak256(
                 abi.encode(
-                    _uTokenImplementation,
+                    _upTokenImplementation,
                     _underlyingToken,
                     _settlementToken,
                     _strike,
@@ -59,39 +64,41 @@ contract UTokenFactory {
                 )
             )
         );
-        uTokens[_underlyingToken][_settlementToken].push(newUToken);
-        bTokens[_underlyingToken][_settlementToken].push(newBToken);
+        upTokens[_underlyingToken][_settlementToken].push(newUToken);
+        capTokens[_underlyingToken][_settlementToken].push(newBToken);
 
-        UToken(newUToken).initialize(
+        UpToken(newUToken).initialize(
             _underlyingToken,
             _settlementToken,
             newBToken,
             _strike,
-            _expiry
+            _expiry,
+            to,
+            amount
         );
-        BToken(newBToken).initialize(newBToken);
+        CapToken(newBToken).initialize(newBToken);
 
         return (newBToken, newUToken);
     }
 
-    function getBTokens(
+    function getCapTokens(
         IERC20Metadata underlying,
         IERC20Metadata settlement,
         uint256 from,
         uint256 numElements
     ) external view returns (address[] memory) {
-        address[] memory allBTokens = bTokens[underlying][settlement];
-        return _getTokens(allBTokens, from, numElements);
+        address[] memory allCapTokens = capTokens[underlying][settlement];
+        return _getTokens(allCapTokens, from, numElements);
     }
 
-    function getUTokens(
+    function getUpTokens(
         IERC20Metadata underlying,
         IERC20Metadata settlement,
         uint256 from,
         uint256 numElements
     ) external view returns (address[] memory) {
-        address[] memory allUTokens = uTokens[underlying][settlement];
-        return _getTokens(allUTokens, from, numElements);
+        address[] memory allUpTokens = upTokens[underlying][settlement];
+        return _getTokens(allUpTokens, from, numElements);
     }
 
     function _getTokens(
