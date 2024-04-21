@@ -235,6 +235,7 @@ contract Pool is InitializableERC20 {
         uint256 _k,
         uint256 _t
     ) public pure returns (uint256) {
+        // x_m = (1/2) * (sqrt(k) * sqrt(4 * a * sqrt(t) + k) + k)
         return
             (Math.sqrt(_k) *
                 (
@@ -255,6 +256,7 @@ contract Pool is InitializableERC20 {
         uint256 _k,
         uint256 _t
     ) public pure returns (uint256) {
+        // y = (a * sqrt(t) * k) / x + k - x
         return
             Math.mulDiv(
                 _a,
@@ -271,6 +273,7 @@ contract Pool is InitializableERC20 {
         uint256 _k,
         uint256 _t
     ) public pure returns (uint256) {
+        // x = (1/2) * (sqrt(4 * a * k * sqrt(t) + k**2 + y**2 - 2 * k * y) + k - y)
         return
             (Math.sqrt(
                 Math.mulDiv(
@@ -294,6 +297,7 @@ contract Pool is InitializableERC20 {
         uint256 _a,
         uint256 _t
     ) public pure returns (uint256) {
+        // k = x * ((x + y) / (a * sqrt(t) + x))
         return
             Math.mulDiv(
                 _x * Math.sqrt(SECONDS_PER_YEAR),
@@ -307,6 +311,7 @@ contract Pool is InitializableERC20 {
         uint256 _k,
         uint256 _t
     ) public pure returns (uint256) {
+        // x_e = (1/4) * (sqrt(k) * sqrt(8 * a * sqrt(t) + k) + k)
         return
             (Math.sqrt(_k) *
                 (
@@ -317,6 +322,32 @@ contract Pool is InitializableERC20 {
                     )
                 ) +
                 _k) / 4;
+    }
+
+    function calcYNew(
+        uint256 xAdd,
+        uint256 _x0,
+        uint256 _a,
+        uint256 _k,
+        uint256 _t
+    ) public pure returns (uint256) {
+        // y_new = (a * sqrt(t) * k * beta**2) / x_new + k * beta**2 - x_new
+        // where
+        // x_new = xAdd + x_old
+        // and
+        // beta = x_new / x_old
+        // -----------------------------------------------------------------
+        // The derivative at this 'new point' is
+        // y'_new = -(a * beta**2 * k * sqrt(t)) / (x_new**2) - 1
+        // and is equal to derivative at 'old point'
+        // y'_old = -(a * k * sqrt(t)) / (x_old**2) - 1
+        return (Math.mulDiv(
+            _a * Math.sqrt(_t) * _k,
+            (xAdd + _x0) ** 2,
+            _x0 ** 2 * (_x0 + xAdd) * Math.sqrt(SECONDS_PER_YEAR)
+        ) +
+            Math.mulDiv(_k, (xAdd + _x0) ** 2, _x0 ** 2) -
+            (_x0 + xAdd));
     }
 
     function _swapCheck(

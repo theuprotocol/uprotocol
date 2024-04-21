@@ -228,6 +228,21 @@ describe("Tests", function () {
       expect(eqPoint).to.be.equal("5854101965976788105")
     })
 
+    it("should calculate y add correctly", async function () {
+      const Pool = await ethers.getContractFactory("Pool");
+      pool = await Pool.deploy();
+
+      const a = BigInt(10) ** BigInt(18);
+      const k = BigInt(10) * BigInt(10) ** BigInt(18);
+      const t = BigInt(31536000);
+
+      const eqPoint = await pool.calcEquilibriumPoint(a, k, t)
+      const xAdd = eqPoint
+
+      const yNew = await pool.calcYNew(xAdd, eqPoint, a, k, t)
+      expect(yNew).to.be.equal("31708203933204422184")
+    })
+
     it("should allow swapping x for y", async function () {
 
       // strike price 1.5 USDC
