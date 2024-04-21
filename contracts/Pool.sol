@@ -10,131 +10,327 @@ import {UpToken} from "./UpToken.sol";
 contract Pool is InitializableERC20 {
     using SafeERC20 for IERC20Metadata;
 
-    uint256 constant SECONDS_PER_WEEK = 604_800;
-    uint256 constant BASE = 1e8;
+    uint256 constant SECONDS_PER_YEAR = 31_536_000;
+    uint256 constant SECONDS_TO_EXPIRY_FLOOR = 86_400;
 
-    address public underlyingToken;
-    address public capToken;
+    address public xToken; // Underlying token
+    address public yToken; // Cap token
 
-    uint256 public xUnd;
-    uint256 public yCap;
+    uint256 public x; // Underlying token balance
+    uint256 public y; // Cap token balance
 
-    uint256 public a;
-    uint256 public b;
+    uint256 public a; // in units of 18**18
     uint256 public k;
-    uint256 public expiry;
+    uint256 public expiry; // block timestamp
 
-    error InvalidInitValues();
-    error InsufficientLiquidity();
+    error Invalid();
+    error XInTooLarge();
+    error SlippageViolation();
+    error DeadlineViolation();
+    error PoolExpired();
+
+    constructor() {
+        _disableInitializers();
+    }
 
     function initialize(
         address _upToken,
-        uint256 x0y0,
         uint256 _a,
-        uint256 _b,
+        uint256 _k,
+        uint256 _t,
         address to
-    ) external initializer {
-        if (UpToken(_upToken).expiry() < block.timestamp) {
-            revert InvalidInitValues();
+    ) external initializer returns (address, address, uint256) {
+        address _yToken = UpToken(_upToken).capToken();
+        address _xToken = address(UpToken(_upToken).underlyingToken());
+
+        (xToken, yToken) = (_xToken, _yToken);
+
+        decimals = IERC20Metadata(_xToken).decimals();
+        if (decimals != 18) {
+            // @dev: currently only 18 decimals supported
+            revert Invalid();
         }
-        address _underlyingToken = address(UpToken(_upToken).underlyingToken());
-        capToken = UpToken(_upToken).capToken();
-        underlyingToken = _underlyingToken;
-        decimals = IERC20Metadata(_underlyingToken).decimals();
-        name = IERC20Metadata(_underlyingToken).name();
-        symbol = IERC20Metadata(_underlyingToken).symbol();
-        expiry = UpToken(_upToken).expiry();
-        xUnd = x0y0;
-        yCap = x0y0;
+
+        name = IERC20Metadata(_xToken).name();
+        symbol = IERC20Metadata(_xToken).symbol();
+
+        if (block.timestamp + _t > UpToken(_upToken).expiry()) {
+            revert Invalid();
+        }
+        expiry = block.timestamp + _t;
+
+        // @dev: currently only 50/50 initialization supported
+        uint256 x0y0 = calcEquilibriumPoint(_a, _k, _t);
+        (x, y) = (x0y0, x0y0);
+
         a = _a;
-        b = _b;
-        k = getK(x0y0, x0y0, _a, _b, _secondsLeft());
+
+        // @dev: mint pool tokens 1:1
         _mint(to, x0y0);
+
+        return (_xToken, _yToken, x0y0);
     }
 
-    function swapXUnderlyingForYCap(
+    function swapGetYGivenXIn(
         address to,
-        uint256 xUndIn
+        uint256 xIn,
+        uint256 minYOut,
+        uint256 deadline
     ) external returns (uint256) {
-        uint256 _xUndMax = xUndMax();
-        uint256 xNew = xUnd + xUndIn;
-        if (xNew >= _xUndMax) {
-            revert InsufficientLiquidity();
-        }
-        uint256 yNew = getYCap(xNew, a, b, _secondsLeft(), k);
-        uint256 yOut = yCap - yNew;
-        xUnd = xNew;
-        yCap = yNew;
-        IERC20Metadata(capToken).safeTransfer(to, yOut);
-        IERC20Metadata(underlyingToken).safeTransferFrom(
-            msg.sender,
-            address(this),
-            xUndIn
+        (uint256 _x0, uint256 _y0, uint256 _a, uint256 _t) = (
+            x,
+            y,
+            a,
+            getSecondsToExpiry()
         );
+        uint256 _k = calcK(_x0, _y0, _a, _t);
+        uint256 yOut = calcYOutGivenXIn(_x0, xIn, _a, _k, _t);
+        if (yOut < minYOut) {
+            revert SlippageViolation();
+        }
+        if (block.timestamp >= deadline) {
+            revert DeadlineViolation();
+        }
+        if (_t <= SECONDS_TO_EXPIRY_FLOOR) {
+            revert PoolExpired();
+        }
+        x += xIn;
+        y -= yOut;
+        IERC20Metadata(xToken).safeTransferFrom(msg.sender, address(this), xIn);
+        IERC20Metadata(yToken).safeTransfer(to, yOut);
         return yOut;
     }
 
-    function swapYCapForXUnderlying(
-        uint256 yCapIn
-    ) external returns (uint256) {}
-
-    function addLiquidity() external returns (uint256) {}
-
-    function removeLiquidity() external returns (uint256) {}
-
-    function xUndMax() public view returns (uint256) {
-        uint256 _k = k;
-        uint256 _a = a;
-        uint256 _b = b;
-        return
-            _k /
-            (2 * (BASE + _a)) +
-            Math.sqrt(
-                Math.mulDiv(_k, _k, 4 * (BASE + _a) ** 2) +
-                    (_b * Math.sqrt(_secondsLeft()) * _k) /
-                    Math.sqrt(SECONDS_PER_WEEK) /
-                    (BASE + _a)
-            );
+    function swapGetXGivenYIn(
+        address to,
+        uint256 yIn,
+        uint256 minXOut,
+        uint256 deadline
+    ) external returns (uint256) {
+        (uint256 _x0, uint256 _y0, uint256 _a, uint256 _t) = (
+            x,
+            y,
+            a,
+            getSecondsToExpiry()
+        );
+        uint256 _k = calcK(_x0, _y0, _a, _t);
+        uint256 xOut = calcXOutGivenYIn(_y0, yIn, _a, _k, _t);
+        if (xOut < minXOut) {
+            revert SlippageViolation();
+        }
+        if (block.timestamp >= deadline) {
+            revert DeadlineViolation();
+        }
+        if (_t <= SECONDS_TO_EXPIRY_FLOOR) {
+            revert PoolExpired();
+        }
+        x -= xOut;
+        y += yIn;
+        IERC20Metadata(xToken).safeTransfer(to, xOut);
+        IERC20Metadata(yToken).safeTransferFrom(msg.sender, address(this), yIn);
+        return xOut;
     }
 
-    function getYCap(
-        uint256 _xUnd,
+    function addLiquidity() external returns (uint256, uint256) {
+        // @dev: not supported yet
+    }
+
+    function removeLiquidity(
+        address to,
+        uint256 amount
+    ) external returns (uint256, uint256) {
+        // @dev: currently adding not supported yet, so simply return full amount
+        uint256 _totalSupply = totalSupply();
+
+        (address _xToken, address _yToken) = (xToken, yToken);
+        uint256 xOut;
+        uint256 yOut;
+        if (amount == _totalSupply) {
+            (xOut, yOut) = (
+                (x * amount) / _totalSupply,
+                (y * amount) / _totalSupply
+            );
+        } else {
+            (xOut, yOut) = (
+                IERC20Metadata(_xToken).balanceOf(address(this)),
+                IERC20Metadata(_yToken).balanceOf(address(this))
+            );
+        }
+
+        (uint256 xNew, uint256 yNew) = (x - xOut, y - yOut);
+        (x, y) = (xNew, yNew);
+        _burn(msg.sender, amount);
+        IERC20Metadata(_xToken).transfer(to, xOut);
+        IERC20Metadata(_yToken).transfer(to, yOut);
+        return (xNew, yNew);
+    }
+
+    function getSecondsToExpiry()
+        public
+        view
+        returns (uint256 _secondsToExpiry)
+    {
+        uint256 _expiry = expiry;
+        if (_expiry > block.timestamp) {
+            _secondsToExpiry = _expiry - block.timestamp >
+                SECONDS_TO_EXPIRY_FLOOR
+                ? _expiry - block.timestamp
+                : SECONDS_TO_EXPIRY_FLOOR;
+        } else {
+            _secondsToExpiry = SECONDS_TO_EXPIRY_FLOOR;
+        }
+    }
+
+    function getYOutGivenXIn(
+        uint256 _xIn
+    )
+        public
+        view
+        returns (uint256, uint256, uint256, uint256, uint256, uint256)
+    {
+        (uint256 _x0, uint256 _y0, uint256 _a, uint256 _t) = (
+            x,
+            y,
+            a,
+            getSecondsToExpiry()
+        );
+        uint256 _k = calcK(_x0, _y0, _a, _t);
+        uint256 yOut = calcYOutGivenXIn(_x0, _xIn, _a, _k, _t);
+        return (yOut, _x0, _y0, _a, _k, _t);
+    }
+
+    function getXOutGivenYIn(
+        uint256 _yIn
+    )
+        public
+        view
+        returns (uint256, uint256, uint256, uint256, uint256, uint256)
+    {
+        (uint256 _x0, uint256 _y0, uint256 _a, uint256 _t) = (
+            x,
+            y,
+            a,
+            getSecondsToExpiry()
+        );
+        uint256 _k = calcK(_x0, _y0, _a, _t);
+        uint256 xOut = calcXOutGivenYIn(_y0, _yIn, _a, _k, _t);
+        return (xOut, _x0, _y0, _a, _k, _t);
+    }
+
+    function calcYOutGivenXIn(
+        uint256 _x0,
+        uint256 _xIn,
         uint256 _a,
-        uint256 _b,
-        uint256 _t,
-        uint256 _k
+        uint256 _k,
+        uint256 _t
+    ) public pure returns (uint256) {
+        uint256 xMax = calcXMax(_a, _k, _t);
+        if (_xIn + _x0 >= xMax) {
+            revert XInTooLarge();
+        }
+        uint256 y0 = calcY(_x0, _a, _k, _t);
+        uint256 yNew = calcY(_xIn + _x0, _a, _k, _t);
+        return y0 - yNew;
+    }
+
+    function calcXOutGivenYIn(
+        uint256 _y0,
+        uint256 _yIn,
+        uint256 _a,
+        uint256 _k,
+        uint256 _t
+    ) public pure returns (uint256) {
+        uint256 x0 = calcX(_y0, _a, _k, _t);
+        uint256 xNew = calcX(_y0 + _yIn, _a, _k, _t);
+        return x0 - xNew;
+    }
+
+    function calcXMax(
+        uint256 _a,
+        uint256 _k,
+        uint256 _t
     ) public pure returns (uint256) {
         return
-            Math.mulDiv(
-                _b,
-                Math.sqrt(_t) * _k,
-                _xUnd * Math.sqrt(SECONDS_PER_WEEK)
-            ) -
-            (_a * _xUnd) /
-            BASE +
-            _k;
+            (Math.sqrt(_k) *
+                (
+                    Math.sqrt(
+                        Math.mulDiv(
+                            4 * _a,
+                            Math.sqrt(_t),
+                            Math.sqrt(SECONDS_PER_YEAR)
+                        ) + _k
+                    )
+                ) +
+                _k) / 2;
     }
 
-    function getK(
-        uint256 _xUnd,
-        uint256 _yCap,
+    function calcY(
+        uint256 _x,
         uint256 _a,
-        uint256 _b,
+        uint256 _k,
         uint256 _t
     ) public pure returns (uint256) {
         return
             Math.mulDiv(
-                _xUnd,
-                (_a * _xUnd) / BASE + _yCap,
-                (_b * Math.sqrt(_t)) /
-                    Math.sqrt(SECONDS_PER_WEEK) /
-                    BASE +
-                    _xUnd
+                _a,
+                Math.sqrt(_t) * _k,
+                _x * Math.sqrt(SECONDS_PER_YEAR)
+            ) +
+            _k -
+            _x;
+    }
+
+    function calcX(
+        uint256 _y,
+        uint256 _a,
+        uint256 _k,
+        uint256 _t
+    ) public pure returns (uint256) {
+        return
+            (Math.sqrt(
+                Math.mulDiv(
+                    4 * _a * _k,
+                    Math.sqrt(_t),
+                    Math.sqrt(SECONDS_PER_YEAR)
+                ) +
+                    _k ** 2 +
+                    _y ** 2 -
+                    2 *
+                    _k *
+                    _y
+            ) +
+                _k -
+                _y) / 2;
+    }
+
+    function calcK(
+        uint256 _x,
+        uint256 _y,
+        uint256 _a,
+        uint256 _t
+    ) public pure returns (uint256) {
+        return
+            Math.mulDiv(
+                _x * Math.sqrt(SECONDS_PER_YEAR),
+                _x + _y,
+                _a * Math.sqrt(_t) + _x * Math.sqrt(SECONDS_PER_YEAR)
             );
     }
 
-    function _secondsLeft() internal view returns (uint256) {
-        uint256 _expiry = expiry;
-        return _expiry > block.timestamp ? _expiry - block.timestamp : 0;
+    function calcEquilibriumPoint(
+        uint256 _a,
+        uint256 _k,
+        uint256 _t
+    ) public pure returns (uint256) {
+        return
+            (Math.sqrt(_k) *
+                (
+                    Math.sqrt(
+                        (8 * _a * Math.sqrt(_t)) /
+                            Math.sqrt(SECONDS_PER_YEAR) +
+                            _k
+                    )
+                ) +
+                _k) / 4;
     }
 }

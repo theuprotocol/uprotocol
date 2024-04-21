@@ -9,8 +9,8 @@ import {CapToken} from "./CapToken.sol";
 contract UpToken is InitializableERC20 {
     using SafeERC20 for IERC20Metadata;
 
-    IERC20Metadata public underlyingToken;
-    IERC20Metadata public settlementToken;
+    address public underlyingToken;
+    address public settlementToken;
     address public capToken;
     uint256 public strike;
     uint256 public expiry;
@@ -20,23 +20,23 @@ contract UpToken is InitializableERC20 {
     error PreExpiry();
 
     function initialize(
-        IERC20Metadata _underlyingToken,
-        IERC20Metadata _settlementToken,
+        address _underlyingToken,
+        address _settlementToken,
         address _capToken,
         uint256 _strike,
         uint256 _expiry,
         address to,
-        uint256 amount
+        uint256 underlyingAmount
     ) external initializer {
         if (
             _expiry < block.timestamp ||
             _strike == 0 ||
             to == address(0) ||
-            amount == 0
+            underlyingAmount == 0
         ) {
             revert InvalidInitValues();
         }
-        decimals = IERC20Metadata(_underlyingToken).decimals();
+        decimals = 18;
         name = IERC20Metadata(_underlyingToken).name();
         symbol = IERC20Metadata(_underlyingToken).symbol();
         underlyingToken = _underlyingToken;
@@ -44,48 +44,86 @@ contract UpToken is InitializableERC20 {
         capToken = _capToken;
         strike = _strike;
         expiry = _expiry;
-
-        _mint(to, amount);
-        CapToken(capToken).mint(to, amount);
+        uint256 mintAmount = underlyingAmount *
+            10 ** (18 - IERC20Metadata(_underlyingToken).decimals());
+        _mint(to, mintAmount);
+        CapToken(capToken).mint(to, mintAmount);
+        IERC20Metadata(_underlyingToken).approve(capToken, type(uint256).max);
     }
 
-    function mint(address to, uint256 amount) external {
+    function tokenize(address to, uint256 amount) external {
         if (block.timestamp > expiry) {
             revert Expired();
         }
         _mint(to, amount);
         CapToken(capToken).mint(to, amount);
-        underlyingToken.safeTransferFrom(msg.sender, address(this), amount);
+        IERC20Metadata(underlyingToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
     }
 
-    function exercise(uint256 amount) external {
+    function exercise(address to, uint256 amount) external {
+        // @dev: exercising is possible only until and including expiry
         if (block.timestamp > expiry) {
             revert Expired();
         }
-        uint256 payPrice = (amount * strike) /
-            (10 ** IERC20Metadata(underlyingToken).decimals());
-        underlyingToken.safeTransfer(msg.sender, amount);
-        settlementToken.safeTransferFrom(msg.sender, address(this), payPrice);
+        uint256 payPrice = (amount * strike) / (10 ** decimals);
+        uint256 transferOutAmount;
+        uint256 _totalSupply = totalSupply();
+        uint256 _totalBal = IERC20Metadata(underlyingToken).balanceOf(
+            address(this)
+        );
+        if (amount == _totalSupply) {
+            transferOutAmount = _totalBal;
+        } else {
+            transferOutAmount = (_totalBal * amount) / _totalSupply;
+        }
+        IERC20Metadata(underlyingToken).safeTransfer(to, transferOutAmount);
+        IERC20Metadata(settlementToken).safeTransferFrom(
+            msg.sender,
+            capToken,
+            payPrice
+        );
         _burn(msg.sender, amount);
     }
 
-    function redeemUnderlying(uint256 amount) external {
-        if (block.timestamp <= expiry) {
-            revert PreExpiry();
+    function redeem(address to, uint256 amount) external {
+        uint256 transferOutAmount;
+        uint256 _totalSupply = totalSupply();
+        uint256 _totalBal = IERC20Metadata(underlyingToken).balanceOf(
+            address(this)
+        );
+        if (amount == _totalSupply) {
+            transferOutAmount = _totalBal;
+        } else {
+            transferOutAmount = (_totalBal * amount) / _totalSupply;
         }
-        underlyingToken.safeTransfer(msg.sender, amount);
+        _burn(msg.sender, amount);
         CapToken(capToken).burn(msg.sender, amount);
+        IERC20Metadata(underlyingToken).safeTransfer(to, transferOutAmount);
     }
 
-    function claimSettlement(uint256 amount) external {
+    function totalExercisable() external view returns (uint256) {
+        return
+            IERC20Metadata(underlyingToken).balanceOf(address(this)) -
+            totalUnexercised();
+    }
+
+    function exercisable(address account) external view returns (uint256) {
         if (block.timestamp <= expiry) {
-            revert PreExpiry();
+            return
+                (IERC20Metadata(underlyingToken).balanceOf(address(this)) *
+                    balanceOf(account)) / totalSupply();
         }
-        uint256 nominator = settlementToken.balanceOf(address(this)) *
-            CapToken(capToken).balanceOf(msg.sender);
-        uint256 denominator = CapToken(capToken).totalSupply();
-        uint256 proRataShare = nominator / denominator;
-        underlyingToken.safeTransfer(msg.sender, proRataShare);
-        CapToken(capToken).burn(msg.sender, amount);
+        return 0;
+    }
+
+    function totalUnexercised() public view returns (uint256) {
+        if (block.timestamp > expiry) {
+            return IERC20Metadata(underlyingToken).balanceOf(address(this));
+        }
+        return 0;
     }
 }

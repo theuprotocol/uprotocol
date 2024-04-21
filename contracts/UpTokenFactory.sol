@@ -12,10 +12,8 @@ contract UpTokenFactory {
 
     address public immutable capTokenImplementation;
     address public immutable upTokenImplementation;
-    mapping(IERC20Metadata => mapping(IERC20Metadata => address[]))
-        internal upTokens;
-    mapping(IERC20Metadata => mapping(IERC20Metadata => address[]))
-        internal capTokens;
+    mapping(address => mapping(address => address[])) internal upTokens;
+    mapping(address => mapping(address => address[])) internal capTokens;
 
     error InvalidRange();
     error OutOfBounds();
@@ -28,64 +26,55 @@ contract UpTokenFactory {
         upTokenImplementation = _upTokenImplementation;
     }
 
-    function create(
-        IERC20Metadata _underlyingToken,
-        IERC20Metadata _settlementToken,
+    function createAndTokenize(
+        address _underlyingToken,
+        address _settlementToken,
         uint256 _strike,
         uint256 _expiry,
         address to,
-        uint256 amount
+        uint256 underlyingAmount
     ) external returns (address, address) {
-        address _capTokenImplementation = capTokenImplementation;
-        address _upTokenImplementation = upTokenImplementation;
-
         address newCapToken = Clones.cloneDeterministic(
-            _capTokenImplementation,
+            capTokenImplementation,
             keccak256(
-                abi.encode(
-                    _capTokenImplementation,
-                    _underlyingToken,
-                    _settlementToken,
-                    _strike,
-                    _expiry
-                )
+                abi.encode(_underlyingToken, _settlementToken, _strike, _expiry)
             )
         );
 
         address newUpToken = Clones.cloneDeterministic(
             upTokenImplementation,
             keccak256(
-                abi.encode(
-                    _upTokenImplementation,
-                    _underlyingToken,
-                    _settlementToken,
-                    _strike,
-                    _expiry
-                )
+                abi.encode(_underlyingToken, _settlementToken, _strike, _expiry)
             )
         );
         upTokens[_underlyingToken][_settlementToken].push(newUpToken);
         capTokens[_underlyingToken][_settlementToken].push(newCapToken);
 
-        CapToken(newCapToken).initialize(newUpToken);
-        UpToken(newUpToken).initialize(
-            _underlyingToken,
-            _settlementToken,
-            newCapToken,
-            _strike,
-            _expiry,
-            to,
-            amount
-        );
+        {
+            CapToken(newCapToken).initialize(newUpToken);
+            UpToken(newUpToken).initialize(
+                _underlyingToken,
+                _settlementToken,
+                newCapToken,
+                _strike,
+                _expiry,
+                to,
+                underlyingAmount
+            );
 
-        _underlyingToken.safeTransferFrom(msg.sender, newUpToken, amount);
+            IERC20Metadata(_underlyingToken).safeTransferFrom(
+                msg.sender,
+                newUpToken,
+                underlyingAmount
+            );
+        }
 
         return (newCapToken, newUpToken);
     }
 
     function tokens(
-        IERC20Metadata underlying,
-        IERC20Metadata settlement,
+        address underlying,
+        address settlement,
         uint256 from,
         uint256 numElements
     ) external view returns (address[] memory, address[] memory) {
