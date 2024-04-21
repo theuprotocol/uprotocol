@@ -12,12 +12,13 @@ contract Pool is InitializableERC20 {
 
     uint256 constant SECONDS_PER_YEAR = 31_536_000;
     uint256 constant SECONDS_TO_EXPIRY_FLOOR = 86_400;
+    uint256 constant SECONDS_TOL = 600;
 
     address public xToken; // Underlying token
     address public yToken; // Cap token
 
-    uint256 public x; // Underlying token balance
-    uint256 public y; // Cap token balance
+    uint256 public x; // Underlying-Token balance
+    uint256 public y; // Cap-Token balance
 
     uint256 public a; // in units of 18**18
     uint256 public expiry; // block timestamp
@@ -27,6 +28,8 @@ contract Pool is InitializableERC20 {
     error SlippageViolation();
     error DeadlineViolation();
     error PoolExpired();
+    error SecondsTolViolation();
+    error PoolNotExpired();
 
     constructor() {
         _disableInitializers();
@@ -116,38 +119,72 @@ contract Pool is InitializableERC20 {
         return xOut;
     }
 
-    function addLiquidity() external returns (uint256, uint256) {
-        // @dev: not supported yet
+    function addLiquidity(
+        uint256 xAdd,
+        uint256 _t
+    ) external returns (uint256, uint256) {
+        uint256 secondsToExpiry = getSecondsToExpiry();
+        uint256 tDiff = secondsToExpiry > _t
+            ? secondsToExpiry - _t
+            : _t - secondsToExpiry;
+        if (tDiff > SECONDS_TOL) {
+            revert SecondsTolViolation();
+        }
+        (uint256 _x0, uint256 _y0, uint256 _a) = (x, y, a);
+        uint256 _k = calcK(_x0, _y0, _a, _t);
+        uint256 yNew = calcYNew(xAdd, _x0, _a, _k, _t);
+        uint256 yAdd = yNew - _y0;
+        x = _x0 + xAdd;
+        y = yNew;
+        uint256 mintAmount = 1; // @dev: tbd
+        _mint(msg.sender, mintAmount);
+        IERC20Metadata(xToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            xAdd
+        );
+        IERC20Metadata(yToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            yAdd
+        );
+        return (xAdd, yAdd);
     }
 
     function removeLiquidity(
         address to,
         uint256 amount
     ) external returns (uint256, uint256) {
-        // @dev: currently adding not supported yet, so simply return full amount
+        // @dev: not supported yet
+    }
+
+    function redeem(address to) external returns (uint256, uint256) {
+        if (block.timestamp < expiry) {
+            revert PoolNotExpired();
+        }
         uint256 _totalSupply = totalSupply();
 
         (address _xToken, address _yToken) = (xToken, yToken);
         uint256 xOut;
         uint256 yOut;
+        uint256 amount = balanceOf(msg.sender);
         if (amount == _totalSupply) {
-            (xOut, yOut) = (
-                (x * amount) / _totalSupply,
-                (y * amount) / _totalSupply
-            );
-        } else {
             (xOut, yOut) = (
                 IERC20Metadata(_xToken).balanceOf(address(this)),
                 IERC20Metadata(_yToken).balanceOf(address(this))
             );
+        } else {
+            (xOut, yOut) = (
+                (x * amount) / _totalSupply,
+                (y * amount) / _totalSupply
+            );
         }
-
-        (uint256 xNew, uint256 yNew) = (x - xOut, y - yOut);
-        (x, y) = (xNew, yNew);
+        x -= xOut;
+        y -= yOut;
         _burn(msg.sender, amount);
-        IERC20Metadata(_xToken).transfer(to, xOut);
-        IERC20Metadata(_yToken).transfer(to, yOut);
-        return (xNew, yNew);
+        IERC20Metadata(_xToken).safeTransfer(to, xOut);
+        IERC20Metadata(_yToken).safeTransfer(to, yOut);
+        return (xOut, yOut);
     }
 
     function getSecondsToExpiry()

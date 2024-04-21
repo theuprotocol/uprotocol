@@ -373,7 +373,7 @@ describe("Tests", function () {
 
       preUndBalPool = await underlyingToken.balanceOf(pool.target)
       preCapBalPool = await capToken.balanceOf(pool.target)
-      await pool.connect(lp).removeLiquidity(lp.address, lpTokenBal)
+      await pool.connect(lp).redeem(lp.address)
       postUndBalPool = await underlyingToken.balanceOf(pool.target)
       postCapBalPool = await capToken.balanceOf(pool.target)
 
