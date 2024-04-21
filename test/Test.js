@@ -228,7 +228,7 @@ describe("Tests", function () {
       expect(eqPoint).to.be.equal("5854101965976788105")
     })
 
-    it("should calculate y add correctly", async function () {
+    it("should calculate yNew correctly", async function () {
       const Pool = await ethers.getContractFactory("Pool");
       pool = await Pool.deploy();
 
@@ -241,6 +241,34 @@ describe("Tests", function () {
 
       const yNew = await pool.calcYNew(xAdd, eqPoint, a, k, t)
       expect(yNew).to.be.equal("31708203933204422184")
+    })
+
+    it("should calculate derivative correctly", async function () {
+      const Pool = await ethers.getContractFactory("Pool");
+      pool = await Pool.deploy();
+
+      const a = BigInt(10) ** BigInt(18);
+      const k = BigInt(10) * BigInt(10) ** BigInt(18);
+      const t = BigInt(31536000);
+
+      const eqPoint = await pool.calcEquilibriumPoint(a, k, t)
+      let x = eqPoint
+
+      let xPrice = await pool.calcXPriceInY(x, a, k, t)
+      expect(xPrice).to.be.equal("1291796067527835803")
+
+      x = BigInt(2) * BigInt(10) ** BigInt(18);
+      xPrice = await pool.calcXPriceInY(x, a, k, t)
+      expect(xPrice).to.be.equal("3500000000000000000")
+
+      const xAdd = BigInt(10) ** BigInt(18)
+      const x0 = BigInt(10) ** BigInt(18) * BigInt(2);
+      const y0 = BigInt(10) ** BigInt(18) * BigInt(13);
+      const s = BigInt(10) ** BigInt(18);
+      const yNew = await pool.calcYNew(xAdd, x0, a, k, t)
+      expect(yNew).to.be.equal("27000000000000000000")
+      const mintRatio = await pool.calcMintRatio(xAdd, x0, y0, a, t)
+      expect(mintRatio[0]).to.be.equal("875000000000000000")
     })
 
     it("should allow swapping x for y", async function () {

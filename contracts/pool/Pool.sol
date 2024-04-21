@@ -6,6 +6,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UpToken} from "../tokenization/UpToken.sol";
+import "hardhat/console.sol";
 
 contract Pool is InitializableERC20 {
     using SafeERC20 for IERC20Metadata;
@@ -13,6 +14,7 @@ contract Pool is InitializableERC20 {
     uint256 constant SECONDS_PER_YEAR = 31_536_000;
     uint256 constant SECONDS_TO_EXPIRY_FLOOR = 86_400;
     uint256 constant SECONDS_TOL = 600;
+    uint256 constant BASE = 10 ** 18;
 
     address public xToken; // Underlying token
     address public yToken; // Cap token
@@ -69,7 +71,7 @@ contract Pool is InitializableERC20 {
 
         a = _a;
 
-        // @dev: mint pool tokens 1:1
+        // @dev: initial mint is 1:1
         _mint(to, x0y0);
 
         return (_xToken, _yToken, x0y0);
@@ -120,24 +122,25 @@ contract Pool is InitializableERC20 {
     }
 
     function addLiquidity(
+        address to,
         uint256 xAdd,
-        uint256 _t
-    ) external returns (uint256, uint256) {
-        uint256 secondsToExpiry = getSecondsToExpiry();
-        uint256 tDiff = secondsToExpiry > _t
-            ? secondsToExpiry - _t
-            : _t - secondsToExpiry;
-        if (tDiff > SECONDS_TOL) {
-            revert SecondsTolViolation();
-        }
+        uint256 _t,
+        uint256 deadline
+    ) external returns (uint256, uint256, uint256) {
+        _checkAddRemoveLiquidity(_t, deadline);
         (uint256 _x0, uint256 _y0, uint256 _a) = (x, y, a);
-        uint256 _k = calcK(_x0, _y0, _a, _t);
-        uint256 yNew = calcYNew(xAdd, _x0, _a, _k, _t);
-        uint256 yAdd = yNew - _y0;
-        x = _x0 + xAdd;
+        // @dev: determine mint based on price-invariant add amounts
+        (uint256 mintRatio, uint256 yNew) = calcMintRatio(
+            xAdd,
+            _x0,
+            _y0,
+            _a,
+            _t
+        );
+        x = xAdd + _x0;
         y = yNew;
-        uint256 mintAmount = 1; // @dev: tbd
-        _mint(msg.sender, mintAmount);
+        uint256 mintAmount = (mintRatio * totalSupply()) / 10 ** 18;
+        _mint(to, mintAmount);
         IERC20Metadata(xToken).safeTransferFrom(
             msg.sender,
             address(this),
@@ -146,15 +149,20 @@ contract Pool is InitializableERC20 {
         IERC20Metadata(yToken).safeTransferFrom(
             msg.sender,
             address(this),
-            yAdd
+            yNew - _y0
         );
-        return (xAdd, yAdd);
+        return (xAdd, yNew - _y0, mintAmount);
     }
 
     function removeLiquidity(
         address to,
-        uint256 amount
+        uint256 xRemove,
+        uint256 _t,
+        uint256 deadline
     ) external returns (uint256, uint256) {
+        if (block.timestamp >= deadline) {
+            revert DeadlineViolation();
+        }
         // @dev: not supported yet
     }
 
@@ -387,6 +395,43 @@ contract Pool is InitializableERC20 {
             (_x0 + xAdd));
     }
 
+    function calcXPriceInY(
+        uint256 _x,
+        uint256 _a,
+        uint256 _k,
+        uint256 _t
+    ) public pure returns (uint256) {
+        // @dev: calculates the infinitesimal price of 1 unit of underlying in capToken
+        // where derivative is given by:
+        // y = -(a * k * sqrt(t)) / (x**2) - 1
+        // Denomination is in BASE, same as capToken
+        return
+            Math.mulDiv(
+                _a * BASE,
+                _k * Math.sqrt(_t),
+                _x ** 2 * Math.sqrt(SECONDS_PER_YEAR)
+            ) + BASE;
+    }
+
+    function calcMintRatio(
+        uint256 xAdd,
+        uint256 _x0,
+        uint256 _y0,
+        uint256 _a,
+        uint256 _t
+    ) public pure returns (uint256, uint256) {
+        uint256 _k = calcK(_x0, _y0, _a, _t);
+        uint256 yNew = calcYNew(xAdd, _x0, _a, _k, _t);
+        uint256 yAdd = yNew - _y0;
+        uint256 xPrice = calcXPriceInY(_x0, _a, _k, _t);
+        console.log((xAdd + (yAdd * 10 ** 18) / xPrice));
+        return (
+            ((xAdd + (yAdd * 10 ** 18) / xPrice) * 10 ** 18) /
+                (_x0 + (_y0 * 10 ** 18) / xPrice),
+            yNew
+        );
+    }
+
     function _swapCheck(
         uint256 out,
         uint256 minOut,
@@ -401,6 +446,27 @@ contract Pool is InitializableERC20 {
         }
         if (t <= SECONDS_TO_EXPIRY_FLOOR) {
             revert PoolExpired();
+        }
+    }
+
+    function _checkAddRemoveLiquidity(
+        uint256 _t,
+        uint256 deadline
+    ) internal view {
+        if (block.timestamp >= deadline) {
+            revert DeadlineViolation();
+        }
+        {
+            uint256 secondsToExpiry = getSecondsToExpiry();
+            if (
+                (
+                    secondsToExpiry > _t
+                        ? secondsToExpiry - _t
+                        : _t - secondsToExpiry
+                ) > SECONDS_TOL
+            ) {
+                revert SecondsTolViolation();
+            }
         }
     }
 }
