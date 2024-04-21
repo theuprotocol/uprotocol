@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-let tokenizer;
+let tokenFactory;
 let capTokenImplementation;
 let upTokenImplementation;
 let underlyingToken;
@@ -23,8 +23,8 @@ describe("Tests", function () {
     UpToken = await ethers.getContractFactory("UpToken");
     upTokenImplementation = await UpToken.deploy();
 
-    const Tokenizer = await ethers.getContractFactory("Tokenizer");
-    tokenizer = await Tokenizer.deploy(capTokenImplementation, upTokenImplementation);
+    const TokenFactory = await ethers.getContractFactory("TokenFactory");
+    tokenFactory = await TokenFactory.deploy(capTokenImplementation, upTokenImplementation);
 
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     underlyingToken = await MockERC20.deploy("XYZ", "XYZ", "18", "111")
@@ -38,8 +38,8 @@ describe("Tests", function () {
         
         const mintAmount = "1000000000000000000"
         await underlyingToken.mint(user.address, mintAmount)
-        await underlyingToken.connect(user).approve(tokenizer.target, mintAmount)
-        await tokenizer.connect(user).tokenizeAndMint(
+        await underlyingToken.connect(user).approve(tokenFactory.target, mintAmount)
+        await tokenFactory.connect(user).tokenizeAndMint(
             underlyingToken.target,
             settlementToken.target,
             strike,
@@ -48,7 +48,7 @@ describe("Tests", function () {
             mintAmount
         );
 
-        const [upTokenAddrs, capTokenAddrs] = await tokenizer.tokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
         console.log(upTokenAddrs)
     });
 
@@ -60,8 +60,8 @@ describe("Tests", function () {
         await underlyingToken.mint(user.address, mintAmount)
 
         // tokenize underlying token
-        await underlyingToken.connect(user).approve(tokenizer.target, mintAmount)
-        await tokenizer.connect(user).tokenizeAndMint(
+        await underlyingToken.connect(user).approve(tokenFactory.target, mintAmount)
+        await tokenFactory.connect(user).tokenizeAndMint(
             underlyingToken.target,
             settlementToken.target,
             strike,
@@ -70,7 +70,7 @@ describe("Tests", function () {
             mintAmount
         );
 
-        const [upTokenAddrs, capTokenAddrs] = await tokenizer.tokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
         
         const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
         const capToken = await ethers.getContractAt("CapToken", capTokenAddrs[0]);
@@ -243,8 +243,8 @@ describe("Tests", function () {
       expect(userBalUnderlying).to.be.equal(mintAmount)
 
       // create and tokenize underlying token
-      await underlyingToken.connect(lp).approve(tokenizer.target, mintAmount)
-      await tokenizer.connect(lp).tokenizeAndMint(
+      await underlyingToken.connect(lp).approve(tokenFactory.target, mintAmount)
+      await tokenFactory.connect(lp).tokenizeAndMint(
           underlyingToken.target,
           settlementToken.target,
           strike,
@@ -253,7 +253,7 @@ describe("Tests", function () {
           mintAmount / BigInt(2)
       );
 
-      const [upTokenAddrs, capTokenAddrs] = await tokenizer.tokens(underlyingToken.target, settlementToken.target, 0, 1)
+      const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
 
       const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
       expect(await upToken.decimals()).to.be.equal(18)

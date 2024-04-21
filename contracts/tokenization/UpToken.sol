@@ -51,16 +51,19 @@ contract UpToken is InitializableERC20 {
         IERC20Metadata(_underlyingToken).approve(capToken, type(uint256).max);
     }
 
-    function tokenize(address to, uint256 amount) external {
+    function tokenize(address to, uint256 underlyingAmount) external {
         if (block.timestamp > expiry) {
             revert Expired();
         }
-        _mint(to, amount);
-        CapToken(capToken).mint(to, amount);
-        IERC20Metadata(underlyingToken).safeTransferFrom(
+        address _underlyingToken = underlyingToken;
+        uint256 mintAmount = underlyingAmount *
+            10 ** (18 - IERC20Metadata(_underlyingToken).decimals());
+        _mint(to, mintAmount);
+        CapToken(capToken).mint(to, mintAmount);
+        IERC20Metadata(_underlyingToken).safeTransferFrom(
             msg.sender,
             address(this),
-            amount
+            underlyingAmount
         );
     }
 

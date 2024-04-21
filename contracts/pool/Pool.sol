@@ -53,6 +53,8 @@ contract Pool is InitializableERC20 {
         name = IERC20Metadata(_xToken).name();
         symbol = IERC20Metadata(_xToken).symbol();
 
+        // @dev: pool cannot expire after upToken; using _t as parameter
+        // allows to deterministically compute x0y0 in advance
         if (block.timestamp + _t > UpToken(_upToken).expiry()) {
             revert Invalid();
         }
@@ -84,15 +86,7 @@ contract Pool is InitializableERC20 {
         );
         uint256 _k = calcK(_x0, _y0, _a, _t);
         uint256 yOut = calcYOutGivenXIn(_x0, xIn, _a, _k, _t);
-        if (yOut < minYOut) {
-            revert SlippageViolation();
-        }
-        if (block.timestamp >= deadline) {
-            revert DeadlineViolation();
-        }
-        if (_t <= SECONDS_TO_EXPIRY_FLOOR) {
-            revert PoolExpired();
-        }
+        _swapCheck(yOut, minYOut, deadline, _t);
         x += xIn;
         y -= yOut;
         IERC20Metadata(xToken).safeTransferFrom(msg.sender, address(this), xIn);
@@ -114,15 +108,7 @@ contract Pool is InitializableERC20 {
         );
         uint256 _k = calcK(_x0, _y0, _a, _t);
         uint256 xOut = calcXOutGivenYIn(_y0, yIn, _a, _k, _t);
-        if (xOut < minXOut) {
-            revert SlippageViolation();
-        }
-        if (block.timestamp >= deadline) {
-            revert DeadlineViolation();
-        }
-        if (_t <= SECONDS_TO_EXPIRY_FLOOR) {
-            revert PoolExpired();
-        }
+        _swapCheck(xOut, minXOut, deadline, _t);
         x -= xOut;
         y += yIn;
         IERC20Metadata(xToken).safeTransfer(to, xOut);
@@ -331,5 +317,22 @@ contract Pool is InitializableERC20 {
                     )
                 ) +
                 _k) / 4;
+    }
+
+    function _swapCheck(
+        uint256 out,
+        uint256 minOut,
+        uint256 deadline,
+        uint256 t
+    ) internal view {
+        if (out < minOut) {
+            revert SlippageViolation();
+        }
+        if (block.timestamp >= deadline) {
+            revert DeadlineViolation();
+        }
+        if (t <= SECONDS_TO_EXPIRY_FLOOR) {
+            revert PoolExpired();
+        }
     }
 }
