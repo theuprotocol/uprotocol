@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-let upTokenFactory;
+let tokenizer;
 let capTokenImplementation;
 let upTokenImplementation;
 let underlyingToken;
@@ -12,7 +12,7 @@ let user
 let lp
 let swapper
 
-describe("UpTokenFactory", function () {
+describe("Tests", function () {
 
   beforeEach(async function () {
     [owner, user, lp, swapper] = await ethers.getSigners();
@@ -23,8 +23,8 @@ describe("UpTokenFactory", function () {
     UpToken = await ethers.getContractFactory("UpToken");
     upTokenImplementation = await UpToken.deploy();
 
-    const UpTokenFactory = await ethers.getContractFactory("UpTokenFactory");
-    upTokenFactory = await UpTokenFactory.deploy(capTokenImplementation, upTokenImplementation);
+    const Tokenizer = await ethers.getContractFactory("Tokenizer");
+    tokenizer = await Tokenizer.deploy(capTokenImplementation, upTokenImplementation);
 
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     underlyingToken = await MockERC20.deploy("XYZ", "XYZ", "18", "111")
@@ -38,8 +38,8 @@ describe("UpTokenFactory", function () {
         
         const mintAmount = "1000000000000000000"
         await underlyingToken.mint(user.address, mintAmount)
-        await underlyingToken.connect(user).approve(upTokenFactory.target, mintAmount)
-        await upTokenFactory.connect(user).createAndTokenize(
+        await underlyingToken.connect(user).approve(tokenizer.target, mintAmount)
+        await tokenizer.connect(user).tokenizeAndMint(
             underlyingToken.target,
             settlementToken.target,
             strike,
@@ -48,7 +48,7 @@ describe("UpTokenFactory", function () {
             mintAmount
         );
 
-        const [upTokenAddrs, capTokenAddrs] = await upTokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const [upTokenAddrs, capTokenAddrs] = await tokenizer.tokens(underlyingToken.target, settlementToken.target, 0, 1)
         console.log(upTokenAddrs)
     });
 
@@ -60,8 +60,8 @@ describe("UpTokenFactory", function () {
         await underlyingToken.mint(user.address, mintAmount)
 
         // tokenize underlying token
-        await underlyingToken.connect(user).approve(upTokenFactory.target, mintAmount)
-        await upTokenFactory.connect(user).createAndTokenize(
+        await underlyingToken.connect(user).approve(tokenizer.target, mintAmount)
+        await tokenizer.connect(user).tokenizeAndMint(
             underlyingToken.target,
             settlementToken.target,
             strike,
@@ -70,7 +70,7 @@ describe("UpTokenFactory", function () {
             mintAmount
         );
 
-        const [upTokenAddrs, capTokenAddrs] = await upTokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
+        const [upTokenAddrs, capTokenAddrs] = await tokenizer.tokens(underlyingToken.target, settlementToken.target, 0, 1)
         
         const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
         const capToken = await ethers.getContractAt("CapToken", capTokenAddrs[0]);
@@ -243,8 +243,8 @@ describe("UpTokenFactory", function () {
       expect(userBalUnderlying).to.be.equal(mintAmount)
 
       // create and tokenize underlying token
-      await underlyingToken.connect(lp).approve(upTokenFactory.target, mintAmount)
-      await upTokenFactory.connect(lp).createAndTokenize(
+      await underlyingToken.connect(lp).approve(tokenizer.target, mintAmount)
+      await tokenizer.connect(lp).tokenizeAndMint(
           underlyingToken.target,
           settlementToken.target,
           strike,
@@ -253,7 +253,7 @@ describe("UpTokenFactory", function () {
           mintAmount / BigInt(2)
       );
 
-      const [upTokenAddrs, capTokenAddrs] = await upTokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
+      const [upTokenAddrs, capTokenAddrs] = await tokenizer.tokens(underlyingToken.target, settlementToken.target, 0, 1)
 
       const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
       expect(await upToken.decimals()).to.be.equal(18)

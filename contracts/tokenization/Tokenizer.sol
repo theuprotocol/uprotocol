@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {CapToken} from "./CapToken.sol";
-import {UpToken} from "./UpToken.sol";
+import {CapToken} from "../tokenization/CapToken.sol";
+import {UpToken} from "../tokenization/UpToken.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract UpTokenFactory {
+contract Tokenizer {
     using SafeERC20 for IERC20Metadata;
 
     address public immutable capTokenImplementation;
@@ -26,7 +26,7 @@ contract UpTokenFactory {
         upTokenImplementation = _upTokenImplementation;
     }
 
-    function createAndTokenize(
+    function tokenizeAndMint(
         address _underlyingToken,
         address _settlementToken,
         uint256 _strike,
