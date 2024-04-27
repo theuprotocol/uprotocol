@@ -6,7 +6,6 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UpToken} from "../tokenization/UpToken.sol";
-import "hardhat/console.sol";
 
 contract Pool is InitializableERC20 {
     using SafeERC20 for IERC20Metadata;
@@ -32,6 +31,7 @@ contract Pool is InitializableERC20 {
     error PoolExpired();
     error SecondsTolViolation();
     error PoolNotExpired();
+    error XRemoveTooLarge();
 
     constructor() {
         _disableInitializers();
@@ -126,20 +126,21 @@ contract Pool is InitializableERC20 {
         uint256 xAdd,
         uint256 _t,
         uint256 deadline
-    ) external returns (uint256, uint256, uint256) {
+    ) external returns (uint256, uint256) {
         _checkAddRemoveLiquidity(_t, deadline);
         (uint256 _x0, uint256 _y0, uint256 _a) = (x, y, a);
-        // @dev: determine mint based on price-invariant add amounts
-        (uint256 mintRatio, uint256 yNew) = calcMintRatio(
+        // @dev: determine mint based on price-invariant new point (x0+xAdd, y_new)
+        (uint256 mintAmount, uint256 yAdd, ) = calcLpTokenAmount(
+            true,
             xAdd,
             _x0,
             _y0,
             _a,
-            _t
+            _t,
+            totalSupply()
         );
         x = xAdd + _x0;
-        y = yNew;
-        uint256 mintAmount = (mintRatio * totalSupply()) / 10 ** 18;
+        y = yAdd + _y0;
         _mint(to, mintAmount);
         IERC20Metadata(xToken).safeTransferFrom(
             msg.sender,
@@ -149,9 +150,9 @@ contract Pool is InitializableERC20 {
         IERC20Metadata(yToken).safeTransferFrom(
             msg.sender,
             address(this),
-            yNew - _y0
+            yAdd
         );
-        return (xAdd, yNew - _y0, mintAmount);
+        return (yAdd, mintAmount);
     }
 
     function removeLiquidity(
@@ -163,7 +164,23 @@ contract Pool is InitializableERC20 {
         if (block.timestamp >= deadline) {
             revert DeadlineViolation();
         }
-        // @dev: not supported yet
+        _checkAddRemoveLiquidity(_t, deadline);
+        (uint256 _x0, uint256 _y0, uint256 _a) = (x, y, a);
+        (uint256 burnAmount, uint256 yRemove, ) = calcLpTokenAmount(
+            false,
+            xRemove,
+            _x0,
+            _y0,
+            _a,
+            _t,
+            totalSupply()
+        );
+        x = _x0 - xRemove;
+        y = _y0 - yRemove;
+        _burn(msg.sender, burnAmount);
+        IERC20Metadata(xToken).safeTransfer(to, xRemove);
+        IERC20Metadata(yToken).safeTransfer(to, yRemove);
+        return (yRemove, burnAmount);
     }
 
     function redeem(address to) external returns (uint256, uint256) {
@@ -369,30 +386,39 @@ contract Pool is InitializableERC20 {
                 _k) / 4;
     }
 
-    function calcYNew(
-        uint256 xAdd,
+    function calcInvariantYNew(
+        bool _xAdd,
+        uint256 _xDiff,
         uint256 _x0,
         uint256 _a,
         uint256 _k,
         uint256 _t
     ) public pure returns (uint256) {
+        if (
+            (!_xAdd && _xDiff > _x0) ||
+            (_xAdd && _xDiff >= calcXMax(_a, _k, _t))
+        ) {
+            revert Invalid();
+        }
+        // Following function defines price-invariant y_new, given x_new:
         // y_new = (a * sqrt(t) * k * beta**2) / x_new + k * beta**2 - x_new
         // where
         // x_new = xAdd + x_old
         // and
         // beta = x_new / x_old
         // -----------------------------------------------------------------
-        // The derivative at this 'new point' is
+        // Price invariance means that derivative at 'new point' is
         // y'_new = -(a * beta**2 * k * sqrt(t)) / (x_new**2) - 1
         // and is equal to derivative at 'old point'
         // y'_old = -(a * k * sqrt(t)) / (x_old**2) - 1
+        uint256 xNew = _xAdd ? _x0 + _xDiff : _x0 - _xDiff;
         return (Math.mulDiv(
             _a * Math.sqrt(_t) * _k,
-            (xAdd + _x0) ** 2,
-            _x0 ** 2 * (_x0 + xAdd) * Math.sqrt(SECONDS_PER_YEAR)
+            xNew ** 2,
+            _x0 ** 2 * xNew * Math.sqrt(SECONDS_PER_YEAR)
         ) +
-            Math.mulDiv(_k, (xAdd + _x0) ** 2, _x0 ** 2) -
-            (_x0 + xAdd));
+            Math.mulDiv(_k, xNew ** 2, _x0 ** 2) -
+            xNew);
     }
 
     function calcXPriceInY(
@@ -413,23 +439,41 @@ contract Pool is InitializableERC20 {
             ) + BASE;
     }
 
-    function calcMintRatio(
-        uint256 xAdd,
+    function calcLpTokenAmount(
+        bool _isMint,
+        uint256 _xDiff,
         uint256 _x0,
         uint256 _y0,
         uint256 _a,
-        uint256 _t
-    ) public pure returns (uint256, uint256) {
+        uint256 _t,
+        uint256 _totalSupply
+    )
+        public
+        pure
+        returns (uint256 lpTokenAmount, uint256 yDiff, uint256 xPrice)
+    {
         uint256 _k = calcK(_x0, _y0, _a, _t);
-        uint256 yNew = calcYNew(xAdd, _x0, _a, _k, _t);
-        uint256 yAdd = yNew - _y0;
-        uint256 xPrice = calcXPriceInY(_x0, _a, _k, _t);
-        console.log((xAdd + (yAdd * 10 ** 18) / xPrice));
-        return (
-            ((xAdd + (yAdd * 10 ** 18) / xPrice) * 10 ** 18) /
-                (_x0 + (_y0 * 10 ** 18) / xPrice),
-            yNew
+        // @dev: determine mint/burn based on price-invariant new point (x0 +/- xDiff, y_new)
+        uint256 yNew = calcInvariantYNew(_isMint, _xDiff, _x0, _a, _k, _t);
+        yDiff = _isMint ? (yNew - _y0) : (_y0 - yNew);
+        // Burn calc checks
+        if (!_isMint && _xDiff > _x0) {
+            revert XRemoveTooLarge();
+        }
+        if (!_isMint && _y0 < yNew) {
+            revert Invalid();
+        }
+        xPrice = calcXPriceInY(_x0, _a, _k, _t);
+        lpTokenAmount = _calcProRataAmount(
+            _xDiff,
+            yDiff,
+            xPrice,
+            _totalSupply,
+            _x0,
+            _y0
         );
+
+        return (lpTokenAmount, yDiff, xPrice);
     }
 
     function _swapCheck(
@@ -468,5 +512,19 @@ contract Pool is InitializableERC20 {
                 revert SecondsTolViolation();
             }
         }
+    }
+
+    function _calcProRataAmount(
+        uint256 xDiff,
+        uint256 yDiff,
+        uint256 xPrice,
+        uint256 _totalSupply,
+        uint256 _x0,
+        uint256 _y0
+    ) internal pure returns (uint256) {
+        // @dev: xPrice in BASE
+        return
+            ((xDiff * xPrice + yDiff * BASE) * _totalSupply) /
+            (_x0 * xPrice + _y0 * BASE);
     }
 }

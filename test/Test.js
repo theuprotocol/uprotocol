@@ -239,7 +239,7 @@ describe("Tests", function () {
       const eqPoint = await pool.calcEquilibriumPoint(a, k, t)
       const xAdd = eqPoint
 
-      const yNew = await pool.calcYNew(xAdd, eqPoint, a, k, t)
+      const yNew = await pool.calcInvariantYNew(true, xAdd, eqPoint, a, k, t)
       expect(yNew).to.be.equal("31708203933204422184")
     })
 
@@ -252,6 +252,7 @@ describe("Tests", function () {
       const t = BigInt(31536000);
 
       const eqPoint = await pool.calcEquilibriumPoint(a, k, t)
+      expect(eqPoint).to.be.equal("5854101965976788105")
       let x = eqPoint
 
       let xPrice = await pool.calcXPriceInY(x, a, k, t)
@@ -264,11 +265,35 @@ describe("Tests", function () {
       const xAdd = BigInt(10) ** BigInt(18)
       const x0 = BigInt(10) ** BigInt(18) * BigInt(2);
       const y0 = BigInt(10) ** BigInt(18) * BigInt(13);
-      const s = BigInt(10) ** BigInt(18);
-      const yNew = await pool.calcYNew(xAdd, x0, a, k, t)
-      expect(yNew).to.be.equal("27000000000000000000")
-      const mintRatio = await pool.calcMintRatio(xAdd, x0, y0, a, t)
-      expect(mintRatio[0]).to.be.equal("875000000000000000")
+      const yNewTmp = await pool.calcInvariantYNew(true, xAdd, x0, a, k, t)
+      expect(yNewTmp).to.be.equal("27000000000000000000")
+      const totalSupply = BigInt(10) ** BigInt(18);
+
+      let kOld = await pool.calcK(eqPoint, eqPoint, a, t)
+      let pOld = await pool.calcXPriceInY(eqPoint, a, kOld, t)
+      expect(pOld).to.be.equal("1291796067512248786")
+
+      const [lpTokenAmount2, yAdd2, xPrice2] = await pool.calcLpTokenAmount(true, xAdd, eqPoint, eqPoint, a, t, totalSupply)
+      expect(lpTokenAmount2).to.be.equal("319891591764079352")
+      expect(yAdd2).to.be.equal("2999999999999999997")
+      expect(xPrice2).to.be.equal("1291796067512248786")
+      // Check price invariance
+      let xNew = eqPoint + BigInt(xAdd)
+      let yNew = eqPoint + BigInt(yAdd2)
+      let kNew = await pool.calcK(xNew, yNew, a, t)
+      let pNew = await pool.calcXPriceInY(xNew, a, kNew, t)
+      expect(pNew).to.be.equal("1291796067512248786")
+
+      const [lpTokenAmount3, yRemove3, xPrice3] = await pool.calcLpTokenAmount(false, xAdd, eqPoint, eqPoint, a, t, totalSupply)
+      expect(lpTokenAmount3).to.be.equal("276393202260638378")
+      expect(yRemove3).to.be.equal("2416407864975502428")
+      expect(xPrice3).to.be.equal("1291796067512248786")
+      // Check price invariance
+      xNew = eqPoint - BigInt(xAdd)
+      yNew = eqPoint - BigInt(yRemove3)
+      kNew = await pool.calcK(xNew, yNew, a, t)
+      pNew = await pool.calcXPriceInY(xNew, a, kNew, t)
+      expect(pNew).to.be.equal("1291796067512248786")
     })
 
     it("should allow swapping x for y", async function () {
