@@ -67,6 +67,12 @@ contract UpToken is InitializableERC20 {
         );
     }
 
+    function untokenize(address to, uint256 amount) external {
+        _burn(msg.sender, amount);
+        CapToken(capToken).burn(msg.sender, amount);
+        IERC20Metadata(underlyingToken).safeTransfer(to, amount);
+    }
+
     function exercise(address to, uint256 amount) external {
         // @dev: exercising is possible only until and including expiry
         if (block.timestamp > expiry) {

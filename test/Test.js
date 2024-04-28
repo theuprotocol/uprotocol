@@ -39,17 +39,35 @@ describe("Tests", function () {
         const mintAmount = "1000000000000000000"
         await underlyingToken.mint(user.address, mintAmount)
         await underlyingToken.connect(user).approve(tokenFactory.target, mintAmount)
+        const undBalPre = await underlyingToken.balanceOf(user.address)
         await tokenFactory.connect(user).tokenizeAndMint(
             underlyingToken.target,
             settlementToken.target,
             strike,
             expiry,
-            owner.address,
+            user.address,
             mintAmount
         );
 
         const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
-        console.log(upTokenAddrs)
+        const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
+        const capToken = await ethers.getContractAt("CapToken", capTokenAddrs[0]);
+
+        const undBalPost1 = await underlyingToken.balanceOf(user.address)
+        const mintBal1 = await upToken.balanceOf(user.address) 
+        const mintBal2 = await capToken.balanceOf(user.address)
+        expect(undBalPre - undBalPost1).to.be.equal(mintBal1)
+        expect(mintBal1).to.be.equal(mintAmount)
+        expect(mintBal1).to.be.equal(mintBal2)
+
+        // test untokenize
+        await upToken.connect(user).untokenize(user.address, mintAmount)
+        const undBalPost2 = await underlyingToken.balanceOf(user.address) 
+        const mintBalPost1 = await upToken.balanceOf(user.address)
+        const mintBalPost2 = await capToken.balanceOf(user.address)
+        expect(undBalPost2 - undBalPost1).to.be.equal(mintBal1)
+        expect(mintBalPost1).to.be.equal(mintBalPost2)
+        expect(mintBalPost1).to.be.equal(0)
     });
 
     it("should initialize the UpToken with correct parameters", async function () {
