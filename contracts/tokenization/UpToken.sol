@@ -20,34 +20,26 @@ contract UpToken is InitializableERC20 {
     error PreExpiry();
 
     function initialize(
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals,
         address _underlyingToken,
         address _settlementToken,
         address _capToken,
         uint256 _strike,
-        uint256 _expiry,
-        address to,
-        uint256 underlyingAmount
+        uint256 _expiry
     ) external initializer {
-        if (
-            _expiry < block.timestamp ||
-            _strike == 0 ||
-            to == address(0) ||
-            underlyingAmount == 0
-        ) {
+        if (_expiry < block.timestamp || _strike == 0) {
             revert InvalidInitValues();
         }
-        decimals = 18;
-        name = IERC20Metadata(_underlyingToken).name();
-        symbol = IERC20Metadata(_underlyingToken).symbol();
+        name = _name;
+        symbol = _symbol;
+        decimals = _decimals;
         underlyingToken = _underlyingToken;
         settlementToken = _settlementToken;
         capToken = _capToken;
         strike = _strike;
         expiry = _expiry;
-        uint256 mintAmount = underlyingAmount *
-            10 ** (18 - IERC20Metadata(_underlyingToken).decimals());
-        _mint(to, mintAmount);
-        CapToken(capToken).mint(to, mintAmount);
         IERC20Metadata(_underlyingToken).approve(capToken, type(uint256).max);
     }
 
@@ -55,12 +47,9 @@ contract UpToken is InitializableERC20 {
         if (block.timestamp > expiry) {
             revert Expired();
         }
-        address _underlyingToken = underlyingToken;
-        uint256 mintAmount = underlyingAmount *
-            10 ** (18 - IERC20Metadata(_underlyingToken).decimals());
-        _mint(to, mintAmount);
-        CapToken(capToken).mint(to, mintAmount);
-        IERC20Metadata(_underlyingToken).safeTransferFrom(
+        _mint(to, underlyingAmount);
+        CapToken(capToken).mint(to, underlyingAmount);
+        IERC20Metadata(underlyingToken).safeTransferFrom(
             msg.sender,
             address(this),
             underlyingAmount
@@ -68,6 +57,9 @@ contract UpToken is InitializableERC20 {
     }
 
     function untokenize(address to, uint256 amount) external {
+        // @dev: allow users to untokenize back into underlying
+        // note: there can be racing if trying to untokenize post expiry
+        // users who want to untokenize should do so before expiry
         _burn(msg.sender, amount);
         CapToken(capToken).burn(msg.sender, amount);
         IERC20Metadata(underlyingToken).safeTransfer(to, amount);
@@ -96,22 +88,6 @@ contract UpToken is InitializableERC20 {
             payPrice
         );
         _burn(msg.sender, amount);
-    }
-
-    function redeem(address to, uint256 amount) external {
-        uint256 transferOutAmount;
-        uint256 _totalSupply = totalSupply();
-        uint256 _totalBal = IERC20Metadata(underlyingToken).balanceOf(
-            address(this)
-        );
-        if (amount == _totalSupply) {
-            transferOutAmount = _totalBal;
-        } else {
-            transferOutAmount = (_totalBal * amount) / _totalSupply;
-        }
-        _burn(msg.sender, amount);
-        CapToken(capToken).burn(msg.sender, amount);
-        IERC20Metadata(underlyingToken).safeTransfer(to, transferOutAmount);
     }
 
     function totalExercisable() external view returns (uint256) {

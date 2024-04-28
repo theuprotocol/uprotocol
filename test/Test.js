@@ -36,22 +36,26 @@ describe("Tests", function () {
         const strike = 100
         const expiry = (await ethers.provider.getBlock("latest")).timestamp + (180 * 24 * 60 * 60);
         
-        const mintAmount = "1000000000000000000"
-        await underlyingToken.mint(user.address, mintAmount)
-        await underlyingToken.connect(user).approve(tokenFactory.target, mintAmount)
-        const undBalPre = await underlyingToken.balanceOf(user.address)
-        await tokenFactory.connect(user).tokenizeAndMint(
+        await tokenFactory.connect(user).create(
             underlyingToken.target,
             settlementToken.target,
             strike,
-            expiry,
-            user.address,
-            mintAmount
+            expiry
         );
 
         const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
         const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
         const capToken = await ethers.getContractAt("CapToken", capTokenAddrs[0]);
+        expect(await upToken.name()).to.be.equal("U-XYZ")
+        expect(await upToken.symbol()).to.be.equal("uXYZ")
+        expect(await capToken.name()).to.be.equal("C-XYZ")
+        expect(await capToken.symbol()).to.be.equal("cXYZ")
+
+        const mintAmount = "1000000000000000000"
+        await underlyingToken.mint(user.address, mintAmount)
+        await underlyingToken.connect(user).approve(upToken.target, mintAmount)
+        const undBalPre = await underlyingToken.balanceOf(user.address)
+        await upToken.connect(user).tokenize(user.address, mintAmount)
 
         const undBalPost1 = await underlyingToken.balanceOf(user.address)
         const mintBal1 = await upToken.balanceOf(user.address) 
@@ -74,24 +78,21 @@ describe("Tests", function () {
         const strike = 100
         const expiry = (await ethers.provider.getBlock("latest")).timestamp + (180 * 24 * 60 * 60);
 
-        const mintAmount = "1000000000000000000"
-        await underlyingToken.mint(user.address, mintAmount)
-
-        // tokenize underlying token
-        await underlyingToken.connect(user).approve(tokenFactory.target, mintAmount)
-        await tokenFactory.connect(user).tokenizeAndMint(
-            underlyingToken.target,
-            settlementToken.target,
-            strike,
-            expiry,
-            user.address,
-            mintAmount
+        await tokenFactory.connect(user).create(
+          underlyingToken.target,
+          settlementToken.target,
+          strike,
+          expiry
         );
 
         const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
-        
         const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
         const capToken = await ethers.getContractAt("CapToken", capTokenAddrs[0]);
+
+        const mintAmount = "1000000000000000000"
+        await underlyingToken.mint(user.address, mintAmount)
+        await underlyingToken.connect(user).approve(upToken.target, mintAmount)
+        await upToken.connect(user).tokenize(user.address, mintAmount)
 
         const contractBalUnderlying = await underlyingToken.balanceOf(upToken.target)
         const userBalUnderlying = await underlyingToken.balanceOf(user.address)
@@ -328,23 +329,20 @@ describe("Tests", function () {
       let userBalUnderlying = await underlyingToken.balanceOf(lp.address)
       expect(userBalUnderlying).to.be.equal(mintAmount)
 
-      // create and tokenize underlying token
-      await underlyingToken.connect(lp).approve(tokenFactory.target, mintAmount)
-      await tokenFactory.connect(lp).tokenizeAndMint(
-          underlyingToken.target,
-          settlementToken.target,
-          strike,
-          expiry,
-          lp.address,
-          mintAmount / BigInt(2)
+      await tokenFactory.connect(user).create(
+        underlyingToken.target,
+        settlementToken.target,
+        strike,
+        expiry
       );
 
       const [upTokenAddrs, capTokenAddrs] = await tokenFactory.tokens(underlyingToken.target, settlementToken.target, 0, 1)
-
       const upToken = await ethers.getContractAt("UpToken", upTokenAddrs[0]);
-      expect(await upToken.decimals()).to.be.equal(18)
-
       const capToken = await ethers.getContractAt("CapToken", capTokenAddrs[0]);
+
+      await underlyingToken.mint(user.address, mintAmount)
+      await underlyingToken.connect(user).approve(upToken.target, mintAmount)
+      await upToken.connect(user).tokenize(lp.address, mintAmount)
 
       contractBalUnderlying = await underlyingToken.balanceOf(upToken.target)
       userBalUnderlying = await underlyingToken.balanceOf(lp.address)

@@ -26,13 +26,11 @@ contract TokenFactory {
         upTokenImplementation = _upTokenImplementation;
     }
 
-    function tokenizeAndMint(
+    function create(
         address _underlyingToken,
         address _settlementToken,
         uint256 _strike,
-        uint256 _expiry,
-        address to,
-        uint256 underlyingAmount
+        uint256 _expiry
     ) external returns (address, address) {
         address newCapToken = Clones.cloneDeterministic(
             capTokenImplementation,
@@ -51,21 +49,23 @@ contract TokenFactory {
         capTokens[_underlyingToken][_settlementToken].push(newCapToken);
 
         {
-            CapToken(newCapToken).initialize(newUpToken);
+            string memory name = IERC20Metadata(_underlyingToken).name();
+            string memory symbol = IERC20Metadata(_underlyingToken).symbol();
+            CapToken(newCapToken).initialize(
+                string(abi.encodePacked("C-", name)),
+                string(abi.encodePacked("c", symbol)),
+                IERC20Metadata(_underlyingToken).decimals(),
+                newUpToken
+            );
             UpToken(newUpToken).initialize(
+                string(abi.encodePacked("U-", name)),
+                string(abi.encodePacked("u", symbol)),
+                IERC20Metadata(_underlyingToken).decimals(),
                 _underlyingToken,
                 _settlementToken,
                 newCapToken,
                 _strike,
-                _expiry,
-                to,
-                underlyingAmount
-            );
-
-            IERC20Metadata(_underlyingToken).safeTransferFrom(
-                msg.sender,
-                newUpToken,
-                underlyingAmount
+                _expiry
             );
         }
 

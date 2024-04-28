@@ -15,8 +15,15 @@ contract CapToken is InitializableERC20 {
     error PreExpiry();
     error NothingToClaim();
 
-    function initialize(address _upToken) external initializer {
-        decimals = IERC20Metadata(_upToken).decimals();
+    function initialize(
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals,
+        address _upToken
+    ) external initializer {
+        name = _name;
+        symbol = _symbol;
+        decimals = _decimals;
         upToken = _upToken;
     }
 
